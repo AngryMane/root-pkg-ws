@@ -3,7 +3,11 @@ name = "root-pkg-ws"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+default = ["cargo-util-schemas"]
+
 [dependencies]
+cargo-util-schemas = { version = "0.3.1", optional = true }
 cargo_metadata = "0.15"
 indexmap = "1.9.1"
 tempfile = "3.3.0"

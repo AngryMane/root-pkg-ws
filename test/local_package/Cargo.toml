@@ -1,0 +1,9 @@
+[package]
+name = "local_package"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "local_package"
+
+[dependencies]

@@ -1,0 +1,17 @@
+[package]
+name = "sample_dependencies_pkg"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# git source
+regex = { git = "https://github.com/rust-lang/regex" }
+#regex = { git = "https://github.com/rust-lang/regex.git" }
+#regex = { git = "https://github.com/rust-lang/regex.git", tag = "1.10.3" }
+#regex = { git = "https://github.com/rust-lang/regex.git", rev = "0c0990399270277832fbb5b91a1fa118e6f63dba" } 
+#regex = { git = "https://github.com/rust-lang/regex.git", rev = "refs/pull/493/head" }
+local_package = { path = "../local_package"}                                                            # path source
+glob = "0.3.0"                                                                                          # registry source
+indexmap = { version = "1.9.1", registry = "test_registry" }                                            # custom registry source
+
+
