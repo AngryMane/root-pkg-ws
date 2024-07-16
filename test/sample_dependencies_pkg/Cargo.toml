@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 # git source
-regex = { git = "https://github.com/rust-lang/regex" }
+#regex = { git = "https://github.com/rust-lang/regex" }
 #regex = { git = "https://github.com/rust-lang/regex.git" }
 #regex = { git = "https://github.com/rust-lang/regex.git", tag = "1.10.3" }
 #regex = { git = "https://github.com/rust-lang/regex.git", rev = "0c0990399270277832fbb5b91a1fa118e6f63dba" } 

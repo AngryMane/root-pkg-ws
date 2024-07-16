@@ -40,44 +40,27 @@ fn register_git_package(git: &mut IndexSet<GitRepo>, package: &PackageIdSpec, gi
     let url = package.url().ok_or(format!("{}  doesn't have url.", name))?;
     match git_reference {
         cargo_util_schemas::core::GitReference::Tag(tag) => { 
-            println!("    {}/{}", url, tag); 
-            git.insert(GitRepo {url: url.to_string(), tag: Some(tag.clone()), branch: None, commit: None });
+            git.insert(GitRepo { url: url.to_string(), tag: Some(tag.clone()), branch: None, commit: None });
         },
         cargo_util_schemas::core::GitReference::Branch(branch) => {
-            println!("    {}/{}", url, branch); 
-            git.insert(GitRepo {url: url.to_string(), tag: None, branch: Some(branch.clone()), commit: None });
+            git.insert(GitRepo { url: url.to_string(), tag: None, branch: Some(branch.clone()), commit: None });
         },
         cargo_util_schemas::core::GitReference::Rev(reference) => { 
-            println!("    {}/{}", url, reference); 
-            git.insert(GitRepo {url: url.to_string(), tag: None, branch: None, commit: Some(reference.clone()) });
+            git.insert(GitRepo { url: url.to_string(), tag: None, branch: None, commit: Some(reference.clone()) });
         },
-        cargo_util_schemas::core::GitReference::DefaultBranch => {},
+        cargo_util_schemas::core::GitReference::DefaultBranch => {
+            git.insert(GitRepo { url: url.to_string(), tag: None, branch: None, commit: None });
+        },
     }
 
     Ok(())
-
-    //let repo: Vec<_> = iter[2].split('+').collect();
-    //let repository = repo[1].replace(")", "");
-    //let elements: Vec<_> = repository.split(&['?', '#'][..]).collect();
-    //let url = elements[0].to_owned();
-    //let commit;
-    //if elements.len() > 2 {
-    //    commit = elements[2].to_owned();
-    //} else {
-    //    commit = elements[1].to_owned();
-    //}
-    //let git_repo = GitRepo {
-    //    url,
-    //    commit,
-    //};
-
-    //todo!()
 }
 
 #[cfg(feature = "cargo-util-schemas")]
 fn register_path_package(files: &mut Vec<String>, package: PackageIdSpec) -> Result<(), Box<dyn std::error::Error>> {
-    let url = package.url().unwrap();
-    println!("    {}", url.to_string());
+    let url = package.url().unwrap().to_string();
+    let path: Vec<_> = url.split("file://").collect();
+    files.push(path[1].to_owned());
     Ok(())
 }
 
@@ -90,7 +73,6 @@ fn register_registry_package(crates: &mut IndexSet<String>, package: PackageIdSp
     // See https://github.com/meta-rust/meta-rust/blob/a5136be2ba408af1cc8afcde1c8e3d787dadd934/lib/crate.py#L82
     let version = package.version().ok_or(format!("{}  doesn't have version.", name))?;
     let crate_repo = format!("{}/{}/{}", url_str, name, version.to_string());
-    println!("    {}", crate_repo);
     crates.insert(crate_repo);
     Ok(())
 }
@@ -103,7 +85,7 @@ fn register_package(crates: &mut IndexSet<String>, git: &mut IndexSet<GitRepo>, 
         cargo_util_schemas::core::SourceKind::Path => register_path_package(files, package)?, 
         cargo_util_schemas::core::SourceKind::Registry => register_registry_package(crates, package)?, 
         cargo_util_schemas::core::SourceKind::SparseRegistry => register_registry_package(crates, package)?,
-        _ => println!("[not handled] {}", spec), // PackageIdSpec::parse does not return Directory or LocalRegistry
+        _ => {return Err(Box::new(io::Error::new(ErrorKind::InvalidData, "Invalid data provided")));}
     }
 
     Ok(())
@@ -128,11 +110,8 @@ fn register_package(crates: &mut IndexSet<String>, git: &mut IndexSet<GitRepo>, 
         let path: Vec<_> = repository.split("file://").collect();
         file_list.push(path[1].to_owned());
     } else if iter[2].contains("(git+") {
-        // repo = ["(git", "https://github.com/Stebalien/tempfile.git?branch=master#e5418bd64758d1d0444e9158005f00ca7d2bc6ee)"]
         let repo: Vec<_> = iter[2].split('+').collect();
-        // repository = "https://github.com/Stebalien/tempfile.git?branch=master#e5418bd64758d1d0444e9158005f00ca7d2bc6ee"
         let repository = repo[1].replace(")", "");
-        // elements = ["https://github.com/Stebalien/tempfile.git", "branch=master", "e5418bd64758d1d0444e9158005f00ca7d2bc6ee"]
         let elements: Vec<_> = repository.split(&['?', '#'][..]).collect();
 
         let url = elements[0].to_owned();
@@ -150,13 +129,14 @@ fn register_package(crates: &mut IndexSet<String>, git: &mut IndexSet<GitRepo>, 
         };
         git.insert(git_repo);
     } else {
-        println!("[not handled] {}", iter[2]);
+        return Err(Box::new(io::Error::new(ErrorKind::InvalidData, "Invalid data provided")));
     }
 
     Ok(())
 }
 
 fn dump_metadata(path: impl Into<PathBuf>, crates: &mut IndexSet<String>, git: &mut IndexSet<GitRepo>) -> Vec<String> {
+    
     let mut file_list = Vec::new();
 
     let _metadata: cargo_metadata::Metadata = cargo_metadata::MetadataCommand::new()
@@ -176,46 +156,9 @@ fn dump_metadata(path: impl Into<PathBuf>, crates: &mut IndexSet<String>, git: &
     let _resolve = _metadata.resolve.unwrap();
     let _nodes: Vec<cargo_metadata::Node> = _resolve.nodes;
     for _node in _nodes.iter() {
-        if let Ok(_) = register_package(crates, git, &mut file_list, &_node.id.repr) {
-            continue
-        }
-
-        let iter: Vec<_> = _node.id.repr.split_whitespace().collect();
-        if iter[2] == "(registry+https://github.com/rust-lang/crates.io-index)" {
-            let mut crate_repo: String = "crate://crates.io/".to_owned();
-            let crate_name: String = iter[0].to_owned();
-            let crate_version: String = iter[1].to_owned();
-
-            crate_repo.push_str(&crate_name);
-            crate_repo.push_str(&*"/".to_owned());
-            crate_repo.push_str(&crate_version);
-
-            crates.insert(crate_repo);
-        } else if iter[2].contains("(path+") {
-            let repo: Vec<_> = iter[2].split('+').collect();
-            let repository = repo[1].replace(")", "");
-            let path: Vec<_> = repository.split("file://").collect();
-            file_list.push(path[1].to_owned());
-        } else if iter[2].contains("(git+") {
-            let repo: Vec<_> = iter[2].split('+').collect();
-            let repository = repo[1].replace(")", "");
-            let elements: Vec<_> = repository.split(&['?', '#'][..]).collect();
-            let url = elements[0].to_owned();
-            let commit;
-            if elements.len() > 2 {
-                commit = elements[2].to_owned();
-            } else {
-                commit = elements[1].to_owned();
-            }
-            let git_repo = GitRepo {
-                url,
-                tag: None,
-                branch:  None,
-                commit: Some(commit),
-            };
-            git.insert(git_repo);
-        } else {
-            println!("[not handled] {}", iter[2]);
+        if let Err(e) = register_package(crates, git, &mut file_list, &_node.id.repr) {
+            let iter: Vec<_> = _node.id.repr.split_whitespace().collect();
+            println!("[not handled] {}: {}", iter[2], e);
         }
     }
 
