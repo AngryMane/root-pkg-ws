@@ -15,12 +15,14 @@ fn main() {
     let major: u32 = version_parts.get(0).unwrap_or(&"0").parse().unwrap_or(0);
     let minor: u32 = version_parts.get(1).unwrap_or(&"0").parse().unwrap_or(0);
 
-    if (major > REQUIRED_MAJOR_VERSION) || (major == REQUIRED_MAJOR_VERSION && minor >= REQUIRED_MINOR_VERSION) {
-        //println!("cargo:rustc-cfg=feature=\"cargo_util_schemas\"");
-        //println!("cargo:rustc-cfg=feature=\"cargo-util-schemas\"");
-        //println!("cargo:rustc-cfg=enable_old_id");
+    if (major > REQUIRED_MAJOR_VERSION)
+        || (major == REQUIRED_MAJOR_VERSION && minor >= REQUIRED_MINOR_VERSION)
+    {
+        println!("cargo:rustc-cfg=feature=\"cargo_util_schemas\"");
     }
 }
 
-const REQUIRED_MAJOR_VERSION: u32 = 1;  // Replace with the required major version
+// if 1.77 or newer, use cargo_util_schemas.
+// See https://github.com/rust-lang/cargo/pull/12914 for more detail.
+const REQUIRED_MAJOR_VERSION: u32 = 1; // Replace with the required major version
 const REQUIRED_MINOR_VERSION: u32 = 77; // Replace with the required minor version

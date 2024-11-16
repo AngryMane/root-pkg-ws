@@ -1,18 +1,15 @@
 use std::env;
+use std::io::{self, ErrorKind};
 use std::path::Path;
 use std::path::PathBuf;
-use std::io::{self, ErrorKind};
-use std::str::FromStr;
 
 use cargo_metadata::CargoOpt;
-
 
 #[cfg(feature = "cargo-util-schemas")]
 use cargo_util_schemas::core::PackageIdSpec;
 
 use clap::Parser;
-use git2::{Cred, Oid, RemoteCallbacks};
-use glob::glob;
+use git2::{Cred, RemoteCallbacks};
 use indexmap::IndexSet;
 use tempfile::tempdir;
 
@@ -35,29 +32,58 @@ struct GitRepo {
 }
 
 #[cfg(feature = "cargo-util-schemas")]
-fn register_git_package(git: &mut IndexSet<GitRepo>, package: &PackageIdSpec, git_reference: &cargo_util_schemas::core::GitReference) -> Result<(), Box<dyn std::error::Error>> {
+fn register_git_package(
+    git: &mut IndexSet<GitRepo>,
+    package: &PackageIdSpec,
+    git_reference: &cargo_util_schemas::core::GitReference,
+) -> Result<(), Box<dyn std::error::Error>> {
     let name = package.name().to_owned();
-    let url = package.url().ok_or(format!("{}  doesn't have url.", name))?;
+    let url = package
+        .url()
+        .ok_or(format!("{}  doesn't have url.", name))?;
     match git_reference {
-        cargo_util_schemas::core::GitReference::Tag(tag) => { 
-            git.insert(GitRepo { url: url.to_string(), tag: Some(tag.clone()), branch: None, commit: None });
-        },
+        cargo_util_schemas::core::GitReference::Tag(tag) => {
+            git.insert(GitRepo {
+                url: url.to_string(),
+                tag: Some(tag.clone()),
+                branch: None,
+                commit: None,
+            });
+        }
         cargo_util_schemas::core::GitReference::Branch(branch) => {
-            git.insert(GitRepo { url: url.to_string(), tag: None, branch: Some(branch.clone()), commit: None });
-        },
-        cargo_util_schemas::core::GitReference::Rev(reference) => { 
-            git.insert(GitRepo { url: url.to_string(), tag: None, branch: None, commit: Some(reference.clone()) });
-        },
+            git.insert(GitRepo {
+                url: url.to_string(),
+                tag: None,
+                branch: Some(branch.clone()),
+                commit: None,
+            });
+        }
+        cargo_util_schemas::core::GitReference::Rev(reference) => {
+            git.insert(GitRepo {
+                url: url.to_string(),
+                tag: None,
+                branch: None,
+                commit: Some(reference.clone()),
+            });
+        }
         cargo_util_schemas::core::GitReference::DefaultBranch => {
-            git.insert(GitRepo { url: url.to_string(), tag: None, branch: None, commit: None });
-        },
+            git.insert(GitRepo {
+                url: url.to_string(),
+                tag: None,
+                branch: None,
+                commit: None,
+            });
+        }
     }
 
     Ok(())
 }
 
 #[cfg(feature = "cargo-util-schemas")]
-fn register_path_package(files: &mut Vec<String>, package: PackageIdSpec) -> Result<(), Box<dyn std::error::Error>> {
+fn register_path_package(
+    files: &mut Vec<String>,
+    package: PackageIdSpec,
+) -> Result<(), Box<dyn std::error::Error>> {
     let url = package.url().unwrap().to_string();
     let path: Vec<_> = url.split("file://").collect();
     files.push(path[1].to_owned());
@@ -65,34 +91,69 @@ fn register_path_package(files: &mut Vec<String>, package: PackageIdSpec) -> Res
 }
 
 #[cfg(feature = "cargo-util-schemas")]
-fn register_registry_package(crates: &mut IndexSet<String>, package: PackageIdSpec) -> Result<(), Box<dyn std::error::Error>> {
+fn register_registry_package(
+    crates: &mut IndexSet<String>,
+    package: PackageIdSpec,
+) -> Result<(), Box<dyn std::error::Error>> {
     let name = package.name().to_string();
-    let url = package.url().ok_or(format!("{}  doesn't have url.", name))?;
-    let url_str = if url.to_string() == "https://github.com/rust-lang/crates.io-index" { "crate://crates.io".to_owned() } else { "crate://".to_owned() + url.authority() + url.path() };
-    // ignore query and gragment because crate.py in meta-rust adds '/download' path. 
+    let url = package
+        .url()
+        .ok_or(format!("{}  doesn't have url.", name))?;
+    let url_str = if url.to_string() == "https://github.com/rust-lang/crates.io-index" {
+        "crate://crates.io".to_owned()
+    } else {
+        "crate://".to_owned() + url.authority() + url.path()
+    };
+    // ignore query and gragment because crate.py in meta-rust adds '/download' path.
     // See https://github.com/meta-rust/meta-rust/blob/a5136be2ba408af1cc8afcde1c8e3d787dadd934/lib/crate.py#L82
-    let version = package.version().ok_or(format!("{}  doesn't have version.", name))?;
+    let version = package
+        .version()
+        .ok_or(format!("{}  doesn't have version.", name))?;
     let crate_repo = format!("{}/{}/{}", url_str, name, version.to_string());
     crates.insert(crate_repo);
     Ok(())
 }
 
 #[cfg(feature = "cargo-util-schemas")]
-fn register_package(crates: &mut IndexSet<String>, git: &mut IndexSet<GitRepo>, files: &mut Vec<String>, spec: &String) -> Result<(), Box<dyn std::error::Error>> {
+fn register_package(
+    crates: &mut IndexSet<String>,
+    git: &mut IndexSet<GitRepo>,
+    files: &mut Vec<String>,
+    spec: &String,
+) -> Result<(), Box<dyn std::error::Error>> {
     let package = PackageIdSpec::parse(spec)?;
-    match package.kind().ok_or("This package doesn't have any KIND.")? {
-        cargo_util_schemas::core::SourceKind::Git(git_reference) => register_git_package(git, &package, git_reference)?, 
-        cargo_util_schemas::core::SourceKind::Path => register_path_package(files, package)?, 
-        cargo_util_schemas::core::SourceKind::Registry => register_registry_package(crates, package)?, 
-        cargo_util_schemas::core::SourceKind::SparseRegistry => register_registry_package(crates, package)?,
-        _ => {return Err(Box::new(io::Error::new(ErrorKind::InvalidData, "Invalid data provided")));}
+    match package
+        .kind()
+        .ok_or("This package doesn't have any KIND.")?
+    {
+        cargo_util_schemas::core::SourceKind::Git(git_reference) => {
+            register_git_package(git, &package, git_reference)?
+        }
+        cargo_util_schemas::core::SourceKind::Path => register_path_package(files, package)?,
+        cargo_util_schemas::core::SourceKind::Registry => {
+            register_registry_package(crates, package)?
+        }
+        cargo_util_schemas::core::SourceKind::SparseRegistry => {
+            register_registry_package(crates, package)?
+        }
+        _ => {
+            return Err(Box::new(io::Error::new(
+                ErrorKind::InvalidData,
+                "Invalid data provided",
+            )));
+        }
     }
 
     Ok(())
 }
 
 #[cfg(not(feature = "cargo-util-schemas"))]
-fn register_package(crates: &mut IndexSet<String>, git: &mut IndexSet<GitRepo>, file_list: &mut Vec<String>, spec: &String) -> Result<(), Box<dyn std::error::Error>> {
+fn register_package(
+    crates: &mut IndexSet<String>,
+    git: &mut IndexSet<GitRepo>,
+    file_list: &mut Vec<String>,
+    spec: &String,
+) -> Result<(), Box<dyn std::error::Error>> {
     let iter: Vec<_> = spec.split_whitespace().collect();
     if iter[2] == "(registry+https://github.com/rust-lang/crates.io-index)" {
         let mut crate_repo: String = "crate://crates.io/".to_owned();
@@ -129,14 +190,20 @@ fn register_package(crates: &mut IndexSet<String>, git: &mut IndexSet<GitRepo>, 
         };
         git.insert(git_repo);
     } else {
-        return Err(Box::new(io::Error::new(ErrorKind::InvalidData, "Invalid data provided")));
+        return Err(Box::new(io::Error::new(
+            ErrorKind::InvalidData,
+            "Invalid data provided",
+        )));
     }
 
     Ok(())
 }
 
-fn dump_metadata(path: impl Into<PathBuf>, crates: &mut IndexSet<String>, git: &mut IndexSet<GitRepo>) -> Vec<String> {
-    
+fn dump_metadata(
+    path: impl Into<PathBuf>,
+    crates: &mut IndexSet<String>,
+    git: &mut IndexSet<GitRepo>,
+) -> Vec<String> {
     let mut file_list = Vec::new();
 
     let _metadata: cargo_metadata::Metadata = cargo_metadata::MetadataCommand::new()
@@ -144,14 +211,6 @@ fn dump_metadata(path: impl Into<PathBuf>, crates: &mut IndexSet<String>, git: &
         .features(CargoOpt::AllFeatures)
         .exec()
         .unwrap();
-
-    //println!("workspace_root: {}", _metadata.workspace_root);
-    //println!("target_directory: {}", _metadata.target_directory);
-
-    //let _members = _metadata.workspace_members;
-    //for _member in _members.iter() {
-    // println!("member: {}", _member.repr);
-    //}
 
     let _resolve = _metadata.resolve.unwrap();
     let _nodes: Vec<cargo_metadata::Node> = _resolve.nodes;
@@ -166,37 +225,22 @@ fn dump_metadata(path: impl Into<PathBuf>, crates: &mut IndexSet<String>, git: &
 }
 
 fn get_repo_folder_name(url: String) -> String {
-    let last = url.split('/')
-        .last()
-        .unwrap()
-        .to_string();
+    let last = url.split('/').last().unwrap().to_string();
     let res: Vec<_> = last.split(".git").collect();
     return res[0].to_string();
 }
 
 fn main() {
     let cli = Cli::parse();
-    //println!("manifest-path: {:?}", cli.manifest_path);
-
     let mut crate_list = IndexSet::new();
     let mut git_list = IndexSet::new();
-
     let _ = dump_metadata(cli.manifest_path, &mut crate_list, &mut git_list);
-
-    //println!();
-    //for _file in file_list {
-        //let _ = dump_metadata(format!("{}/Cargo.toml", _file), &mut crate_list, &mut git_list);
-        //println!("{}", _file);
-    //}
 
     println!();
     println!("SRC_URI += \" \\");
-    //let mut count = 0;
     for _crate in crate_list.iter() {
         println!("    {} \\", _crate);
-        //count = count + 1;
     }
-    //println!("\nCount: {}", count);
 
     let dir = tempdir().unwrap();
 
@@ -223,49 +267,21 @@ fn main() {
         let protocol: Vec<_> = _git.url.split("://").collect();
         let folder = get_repo_folder_name(protocol[1].to_string());
         if let Some(branch) = _git.branch.clone() {
-            println!("    git://{};lfs=0;nobranch=1;branch={};protocol={};destsuffix={};name={} \\", protocol[1], branch, protocol[0], folder, folder);
+            println!(
+                "    git://{};lfs=0;nobranch=1;branch={};protocol={};destsuffix={};name={} \\",
+                protocol[1], branch, protocol[0], folder, folder
+            );
         } else if let Some(tag) = _git.tag.clone() {
-            println!("    git://{};lfs=0;nobranch=1;tag={};protocol={};destsuffix={};name={} \\", protocol[1], tag, protocol[0], folder, folder);
+            println!(
+                "    git://{};lfs=0;nobranch=1;tag={};protocol={};destsuffix={};name={} \\",
+                protocol[1], tag, protocol[0], folder, folder
+            );
         } else {
-            println!("    git://{};lfs=0;nobranch=1;protocol={};destsuffix={};name={} \\", protocol[1], protocol[0], folder, folder);
+            println!(
+                "    git://{};lfs=0;nobranch=1;protocol={};destsuffix={};name={} \\",
+                protocol[1], protocol[0], folder, folder
+            );
         }
-
-        // The following appears to be unnecessary processing.
-        ////let a = PathBuf::from_str(".").unwrap();
-        ////let folder = a.join(sub_folder);
-        //let sub_folder = get_repo_folder_name(_git.url.to_string());
-        //let folder = dir.path().join(sub_folder);
-
-        //let repo = builder.clone(&_git.url, Path::new(&folder)).expect("failed to clone repository");
-
-        //let oid = Oid::from_str(&_git.commit).unwrap();
-        //let commit = repo.find_commit(oid).unwrap();
-
-        //let _ = repo.branch(
-        //    &_git.commit,
-        //    &commit,
-        //    false,
-        //);
-
-        //let obj = repo.revparse_single(&("refs/heads/".to_owned() + &_git.commit)).unwrap();
-
-        //let _ = repo.checkout_tree(
-        //    &obj,
-        //    None,
-        //);
-
-        //let _ = repo.set_head(&("refs/heads/".to_owned() + &_git.commit));
-
-        //let _glob = String::from(folder.join("**/Cargo.toml").to_string_lossy());
-        //for entry in glob(&_glob).unwrap() {
-        //    match entry {
-        //        Ok(manifest) => {
-        //            let mut _git_list = IndexSet::new();
-        //            let _ = dump_metadata(manifest, &mut crate_list, &mut _git_list);
-        //        }
-        //        Err(e) => println!("Err: {:?}", e),
-        //    }
-        //}
     }
     dir.close().unwrap();
     println!("\"\n");
